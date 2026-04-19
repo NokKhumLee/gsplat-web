@@ -386,3 +386,132 @@ html, body {
   box-shadow: var(--shadow-2xl), 0 0 12px color-mix(in oklch, var(--primary), transparent 55%);
   white-space: nowrap; transform: translate(-50%, -50%) rotate(2deg);
 }
+
+/* ── Card Delete Button (custom scenes) ────────────────────────────────────── */
+.card-delete-btn {
+  flex-shrink: 0; width: 24px; height: 24px; border-radius: var(--radius);
+  background: transparent; border: none; cursor: pointer;
+  color: var(--muted-foreground); display: flex; align-items: center; justify-content: center;
+  padding: 4px; opacity: 0; transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+.scene-card:hover .card-delete-btn { opacity: 1; }
+.card-delete-btn:hover {
+  background: color-mix(in oklch, var(--destructive), transparent 80%);
+  color: var(--destructive);
+}
+.card-delete-btn svg { width: 13px; height: 13px; }
+
+/* ── Sidebar Footer + Add Scene Button ─────────────────────────────────────── */
+.sidebar-footer {
+  padding: 10px 8px; border-top: 1px solid var(--sidebar-border); flex-shrink: 0;
+}
+
+.btn-add-scene {
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  width: 100%; padding: 9px 12px; border-radius: var(--radius);
+  background: color-mix(in oklch, var(--primary), transparent 88%);
+  border: 1px dashed color-mix(in oklch, var(--primary), transparent 55%);
+  color: var(--primary); font-size: 12px; font-weight: 500;
+  cursor: pointer; font-family: var(--font-sans);
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.btn-add-scene:hover {
+  background: color-mix(in oklch, var(--primary), transparent 78%);
+  border-color: var(--primary);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--primary), transparent 65%);
+}
+.btn-add-scene svg { width: 15px; height: 15px; }
+
+/* ── Modal Overlay ─────────────────────────────────────────────────────────── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,0.6); backdrop-filter: blur(6px);
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s;
+}
+.modal-overlay.visible { opacity: 1; pointer-events: auto; }
+
+.modal-card {
+  background: var(--card); border: 1px solid var(--border); border-radius: calc(var(--radius) * 2);
+  box-shadow: var(--shadow-2xl); width: 100%; max-width: 480px;
+  margin: 16px; transform: translateY(8px);
+  transition: transform 0.2s;
+}
+.modal-overlay.visible .modal-card { transform: translateY(0); }
+
+.modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 18px 20px 14px; border-bottom: 1px solid var(--border);
+}
+.modal-title {
+  font-size: 15px; font-weight: 600; color: var(--foreground); letter-spacing: -0.2px;
+  font-family: var(--font-sans);
+}
+.modal-close {
+  width: 28px; height: 28px; border-radius: var(--radius);
+  background: var(--muted); border: 1px solid var(--border); color: var(--muted-foreground);
+  cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 13px;
+  transition: background 0.15s, color 0.15s;
+}
+.modal-close:hover { background: color-mix(in oklch, var(--destructive), transparent 80%); color: var(--destructive); }
+
+/* ── Modal Form ────────────────────────────────────────────────────────────── */
+.modal-form { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
+
+.form-group { display: flex; flex-direction: column; gap: 5px; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.form-row .form-group:first-child { grid-column: 1; }
+
+.form-label { font-size: 11px; font-weight: 500; color: var(--muted-foreground); font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.5px; }
+.required { color: var(--primary); }
+
+.form-input {
+  width: 100%; padding: 8px 11px; border-radius: var(--radius);
+  background: var(--muted); border: 1px solid var(--border);
+  color: var(--foreground); font-size: 13px; font-family: var(--font-sans);
+  transition: border-color 0.15s, box-shadow 0.15s; outline: none;
+}
+.form-input::placeholder { color: var(--muted-foreground); opacity: 0.6; }
+.form-input:focus {
+  border-color: var(--ring);
+  box-shadow: 0 0 0 2px color-mix(in oklch, var(--ring), transparent 75%);
+}
+
+.form-divider {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 10px; font-weight: 500; color: var(--muted-foreground);
+  font-family: var(--font-mono); text-transform: uppercase; letter-spacing: 0.8px;
+}
+.form-divider::before, .form-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--border);
+}
+.form-optional { text-transform: none; letter-spacing: 0; font-weight: 400; opacity: 0.7; }
+
+.form-error {
+  padding: 8px 11px; border-radius: var(--radius);
+  background: color-mix(in oklch, var(--destructive), transparent 85%);
+  border: 1px solid color-mix(in oklch, var(--destructive), transparent 65%);
+  color: var(--destructive); font-size: 12px;
+}
+
+/* ── Modal Actions ─────────────────────────────────────────────────────────── */
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 4px; }
+
+.btn {
+  padding: 8px 18px; border-radius: var(--radius); font-size: 13px; font-weight: 500;
+  cursor: pointer; border: 1px solid transparent; font-family: var(--font-sans);
+  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.btn-ghost {
+  background: var(--muted); border-color: var(--border); color: var(--muted-foreground);
+}
+.btn-ghost:hover { background: var(--secondary); color: var(--foreground); }
+.btn-primary {
+  background: var(--primary); color: var(--primary-foreground); border-color: var(--primary);
+}
+.btn-primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 0 10px color-mix(in oklch, var(--primary), transparent 55%);
+}

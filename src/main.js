@@ -2,7 +2,39 @@ import './style.css';
 import { LumaSplatsThree } from '@lumaai/luma-web';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { SCENES, getSceneById } from './config.js';
+import { SCENES } from './config.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SceneRegistry — merges hardcoded SCENES with localStorage custom scenes
+// ─────────────────────────────────────────────────────────────────────────────
+class SceneRegistry {
+    static STORAGE_KEY = 'gsplat_custom_scenes';
+
+    static getCustomScenes() {
+        try {
+            return JSON.parse(localStorage.getItem(this.STORAGE_KEY) || '[]');
+        } catch { return []; }
+    }
+
+    static getAllScenes() {
+        return [...SCENES, ...this.getCustomScenes()];
+    }
+
+    static addScene(scene) {
+        const scenes = this.getCustomScenes();
+        scenes.push({ ...scene, custom: true });
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(scenes));
+    }
+
+    static removeScene(id) {
+        const scenes = this.getCustomScenes().filter(s => s.id !== id);
+        localStorage.setItem(this.STORAGE_KEY, JSON.stringify(scenes));
+    }
+
+    static findById(id) {
+        return this.getAllScenes().find(s => s.id === id) ?? null;
+    }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PanelViewer — one Three.js renderer + scene per panel slot
@@ -313,21 +345,184 @@ class PanelManager {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AddSceneModal — form dialog for registering a new scene to localStorage
+// ─────────────────────────────────────────────────────────────────────────────
+class AddSceneModal {
+    constructor(onSave) {
+        this.onSave = onSave;
+        this._buildDOM();
+    }
+
+    _buildDOM() {
+        this.overlay = document.createElement('div');
+        this.overlay.className = 'modal-overlay';
+        this.overlay.innerHTML = `
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+        <div class="modal-header">
+          <h2 id="modal-title" class="modal-title">Register Scene</h2>
+          <button class="modal-close" id="modal-close-btn" title="Close">✕</button>
+        </div>
+
+        <form id="add-scene-form" class="modal-form" novalidate>
+          <div class="form-group">
+            <label class="form-label" for="field-label">Scene Name <span class="required">*</span></label>
+            <input class="form-input" id="field-label" type="text" placeholder="e.g. Garden — FM-LLPS" required />
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="field-model">Model / Loss <span class="required">*</span></label>
+              <input class="form-input" id="field-model" type="text" list="model-suggestions" placeholder="e.g. FM-LLPS" required />
+              <datalist id="model-suggestions">
+                <option value="L1 + SSIM"/>
+                <option value="FM-LLPS"/>
+                <option value="Hybrid α·L1+β·SSIM+γ·FM-LLPS"/>
+              </datalist>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="field-tag">Tag</label>
+              <input class="form-input" id="field-tag" type="text" placeholder="BASELINE" />
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label" for="field-url">Luma Capture URL <span class="required">*</span></label>
+            <input class="form-input" id="field-url" type="url" placeholder="https://lumalabs.ai/capture/..." required />
+          </div>
+
+          <div class="form-divider"><span>Metrics <span class="form-optional">(optional)</span></span></div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label" for="field-psnr">PSNR (dB)</label>
+              <input class="form-input" id="field-psnr" type="number" step="0.01" min="0" placeholder="28.87" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="field-ssim">SSIM</label>
+              <input class="form-input" id="field-ssim" type="number" step="0.001" min="0" max="1" placeholder="0.931" />
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="field-fmllps">FM-LLPS</label>
+              <input class="form-input" id="field-fmllps" type="number" step="0.001" min="0" max="1" placeholder="0.412" />
+            </div>
+          </div>
+
+          <div id="form-error" class="form-error" style="display:none"></div>
+
+          <div class="modal-actions">
+            <button type="button" class="btn btn-ghost" id="modal-cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary">Add Scene</button>
+          </div>
+        </form>
+      </div>`;
+
+        document.body.appendChild(this.overlay);
+
+        // Wire close / cancel
+        this.overlay.querySelector('#modal-close-btn').addEventListener('click', () => this.hide());
+        this.overlay.querySelector('#modal-cancel-btn').addEventListener('click', () => this.hide());
+        this.overlay.addEventListener('click', (e) => { if (e.target === this.overlay) this.hide(); });
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') this.hide(); });
+
+        // Submit
+        this.overlay.querySelector('#add-scene-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this._handleSubmit();
+        });
+    }
+
+    _handleSubmit() {
+        const get = (id) => this.overlay.querySelector(id).value.trim();
+        const errorEl = this.overlay.querySelector('#form-error');
+
+        const label = get('#field-label');
+        const model = get('#field-model');
+        const url   = get('#field-url');
+
+        // Validation
+        if (!label || !model || !url) {
+            errorEl.textContent = 'Scene Name, Model / Loss and URL are required.';
+            errorEl.style.display = '';
+            return;
+        }
+        try { new URL(url); } catch {
+            errorEl.textContent = 'Please enter a valid URL.';
+            errorEl.style.display = '';
+            return;
+        }
+        errorEl.style.display = 'none';
+
+        const toNum = (id) => { const v = parseFloat(get(id)); return isNaN(v) ? null : v; };
+
+        const scene = {
+            id: `custom-${Date.now()}`,
+            label,
+            model,
+            tag: get('#field-tag') || model.toUpperCase().slice(0, 10),
+            url,
+            thumbnail: null,
+            metrics: { psnr: toNum('#field-psnr'), ssim: toNum('#field-ssim'), fmllps: toNum('#field-fmllps') },
+        };
+
+        SceneRegistry.addScene(scene);
+        this.onSave(scene);
+        this._resetForm();
+        this.hide();
+    }
+
+    _resetForm() {
+        this.overlay.querySelector('#add-scene-form').reset();
+        this.overlay.querySelector('#form-error').style.display = 'none';
+    }
+
+    show() {
+        this.overlay.classList.add('visible');
+        this.overlay.querySelector('#field-label').focus();
+    }
+
+    hide() { this.overlay.classList.remove('visible'); }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // SceneSidebar — renders draggable scene cards
 // ─────────────────────────────────────────────────────────────────────────────
 class SceneSidebar {
-    constructor(listEl, onDragStart) {
+    constructor(listEl, onDragStart, onAddClick) {
         this.listEl = listEl;
         this.onDragStart = onDragStart;
+        this.onAddClick = onAddClick;
         this._render();
+        this._buildAddButton();
     }
+
+    refresh() { this._render(); }
 
     _render() {
         this.listEl.innerHTML = '';
-        for (const scene of SCENES) {
+        for (const scene of SceneRegistry.getAllScenes()) {
             const card = this._buildCard(scene);
             this.listEl.appendChild(card);
         }
+    }
+
+    _buildAddButton() {
+        const footer = document.createElement('div');
+        footer.className = 'sidebar-footer';
+        const btn = document.createElement('button');
+        btn.className = 'btn-add-scene';
+        btn.id = 'add-scene-btn';
+        btn.innerHTML = `
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="16"/>
+            <line x1="8" y1="12" x2="16" y2="12"/>
+          </svg>
+          Add Scene`;
+        btn.addEventListener('click', () => this.onAddClick());
+        footer.appendChild(btn);
+        // Insert after scene-list
+        this.listEl.parentElement.appendChild(footer);
     }
 
     _buildCard(scene) {
@@ -389,12 +584,30 @@ class SceneSidebar {
         info.appendChild(chips);
         card.appendChild(info);
 
+        // Delete button (custom scenes only)
+        if (scene.custom) {
+            const deleteBtn = document.createElement('button');
+            deleteBtn.className = 'card-delete-btn';
+            deleteBtn.title = 'Remove scene';
+            deleteBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="3 6 5 6 21 6"/>
+              <path d="M19 6l-1 14H6L5 6"/>
+              <path d="M10 11v6M14 11v6"/>
+              <path d="M9 6V4h6v2"/>
+            </svg>`;
+            deleteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                SceneRegistry.removeScene(scene.id);
+                this._render();
+            });
+            card.appendChild(deleteBtn);
+        }
+
         // Drag events
         card.addEventListener('dragstart', (e) => {
             card.classList.add('dragging');
             e.dataTransfer.effectAllowed = 'copy';
             e.dataTransfer.setData('text/scene-id', scene.id);
-            // Custom ghost
             const ghost = document.createElement('div');
             ghost.className = 'drag-ghost';
             ghost.textContent = scene.label;
@@ -450,7 +663,7 @@ class DragDropController {
             slot.classList.remove('drag-over');
 
             const sceneId = e.dataTransfer.getData('text/scene-id');
-            const scene = getSceneById(sceneId);
+            const scene = SceneRegistry.findById(sceneId);
             if (!scene) return;
 
             const panel = this.panelManager.getPanelBySlot(slot);
@@ -512,9 +725,14 @@ class CompareApp {
         this.headerBar = new HeaderBar(this.syncCtrl);
         this.dragDropCtrl = new DragDropController(this.panelManager);
 
+        this.modal = new AddSceneModal((newScene) => {
+            this.sidebar.refresh();
+        });
+
         this.sidebar = new SceneSidebar(
             document.getElementById('scene-list'),
-            (scene) => this.dragDropCtrl.setActiveDragScene(scene)
+            (scene) => this.dragDropCtrl.setActiveDragScene(scene),
+            () => this.modal.show()
         );
 
         this._bindLayoutToolbar();
