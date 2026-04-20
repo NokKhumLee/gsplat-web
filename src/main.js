@@ -1,5 +1,5 @@
 import './style.css';
-import { LumaSplatsThree } from '@lumaai/luma-web';
+import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
 import { SCENES } from './config.js';
@@ -37,6 +37,47 @@ class SceneRegistry {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// SessionStore — persists layout, panel assignments & sync state to localStorage
+// ─────────────────────────────────────────────────────────────────────────────
+class SessionStore {
+    static KEYS = {
+        layout: 'gsplat_layout',
+        panels: 'gsplat_panel_state',
+        sync:   'gsplat_sync_enabled',
+    };
+
+    static saveLayout(layout) {
+        try { localStorage.setItem(this.KEYS.layout, layout); } catch {}
+    }
+
+    static savePanels(panels) {
+        try {
+            const state = panels.map((p, i) => ({
+                slot: i,
+                sceneId: p.sceneConfig?.id ?? null,
+            }));
+            localStorage.setItem(this.KEYS.panels, JSON.stringify(state));
+        } catch {}
+    }
+
+    static saveSync(enabled) {
+        try { localStorage.setItem(this.KEYS.sync, String(enabled)); } catch {}
+    }
+
+    static load() {
+        try {
+            return {
+                layout: localStorage.getItem(this.KEYS.layout) ?? 'split',
+                panels: JSON.parse(localStorage.getItem(this.KEYS.panels) || '[]'),
+                sync:   localStorage.getItem(this.KEYS.sync) !== 'false',
+            };
+        } catch {
+            return { layout: 'split', panels: [], sync: true };
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PanelViewer — one Three.js renderer + scene per panel slot
 // ─────────────────────────────────────────────────────────────────────────────
 class PanelViewer {
@@ -45,6 +86,7 @@ class PanelViewer {
         this.id = id;
         this.sceneConfig = null;
         this.splat = null;
+        this.sparkRenderer = null;
 
         // Callbacks
         this.onCameraChange = null; // (matrix4) => void
@@ -166,12 +208,17 @@ class PanelViewer {
             }
         });
 
+        // SparkRenderer manages GPU-based splat sorting for this panel
+        this.sparkRenderer = new SparkRenderer({ renderer: this.renderer });
+        this.threeScene.add(this.sparkRenderer);
+
         this._startLoop();
     }
 
     _destroyThree() {
         if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
-        if (this.splat) { this.threeScene.remove(this.splat); this.splat = null; }
+        if (this.splat) { this.threeScene.remove(this.splat); this.splat.dispose?.(); this.splat = null; }
+        if (this.sparkRenderer) { this.threeScene.remove(this.sparkRenderer); this.sparkRenderer.dispose?.(); this.sparkRenderer = null; }
         if (this.renderer) { this.renderer.dispose(); this.canvasContainer.innerHTML = ''; this.renderer = null; }
         if (this.controls) { this.controls.dispose(); this.controls = null; }
         this.threeScene = null;
@@ -205,14 +252,19 @@ class PanelViewer {
         if (this.sceneConfig?.id === sceneConfig.id) return;
         this.clearScene(false); // destroy previous without resetting to drop zone yet
         this.sceneConfig = sceneConfig;
+        if (this._onStateChange) this._onStateChange();
 
         this._showLoading();
         this._initThree();
 
-        this.splat = new LumaSplatsThree({
-            source: sceneConfig.url,
-            loadingAnimationEnabled: false,
-        });
+        // SplatMesh loads .splat / .ply / .spz files natively
+        this.splat = new SplatMesh({ url: sceneConfig.url });
+
+        // .splat files use OpenCV convention (Y-down, Z-forward).
+        // Rotate 180° on X to convert to Three.js Y-up coordinate system.
+        const rot = sceneConfig.rotation ?? [Math.PI, 0, 0]; // [x, y, z] euler radians
+        this.splat.rotation.set(rot[0], rot[1], rot[2]);
+
         this.threeScene.add(this.splat);
 
         const ready = () => {
@@ -226,20 +278,22 @@ class PanelViewer {
             }
         };
 
-        if (this.splat.onLoad !== undefined) {
-            this.splat.onLoad = ready;
-        } else {
-            setTimeout(ready, 1500); // fallback
-        }
+        // Spark fires 'loaded' when the splat file is fully parsed
+        this.splat.addEventListener('loaded', ready, { once: true });
+        this._loadingFallback = setTimeout(ready, 4000); // fallback if event doesn't fire
 
         this.resize();
     }
 
     /** Clear the panel back to drop-zone state */
     clearScene(resetUI = true) {
+        clearTimeout(this._loadingFallback);
         this.sceneConfig = null;
         this._destroyThree();
-        if (resetUI) this._showDropZone();
+        if (resetUI) {
+            this._showDropZone();
+            if (this._onStateChange) this._onStateChange();
+        }
     }
 
     /** Resize renderer to match current slot dimensions */
@@ -329,9 +383,10 @@ class PanelManager {
         requestAnimationFrame(() => this.resizeAll());
     }
 
-    switchLayout(layout) {
+    switchLayout(layout, silent = false) {
         if (layout === this.currentLayout) return;
         this._setLayout(layout);
+        if (!silent) SessionStore.saveLayout(layout);
     }
 
     resizeAll() {
@@ -386,8 +441,8 @@ class AddSceneModal {
           </div>
 
           <div class="form-group">
-            <label class="form-label" for="field-url">Luma Capture URL <span class="required">*</span></label>
-            <input class="form-input" id="field-url" type="url" placeholder="https://lumalabs.ai/capture/..." required />
+            <label class="form-label" for="field-url">Splat File Path or URL <span class="required">*</span></label>
+            <input class="form-input" id="field-url" type="text" placeholder="/splats/my-scene.splat  or  https://..." required />
           </div>
 
           <div class="form-divider"><span>Metrics <span class="form-optional">(optional)</span></span></div>
@@ -445,8 +500,11 @@ class AddSceneModal {
             errorEl.style.display = '';
             return;
         }
-        try { new URL(url); } catch {
-            errorEl.textContent = 'Please enter a valid URL.';
+        // Accept absolute URLs or root-relative paths (/splats/...)
+        const isAbsoluteUrl = (() => { try { new URL(url); return true; } catch { return false; } })();
+        const isRootPath = url.startsWith('/');
+        if (!isAbsoluteUrl && !isRootPath) {
+            errorEl.textContent = 'Enter a valid URL (https://...) or a root-relative path (/splats/scene.splat).';
             errorEl.style.display = '';
             return;
         }
@@ -687,8 +745,10 @@ class HeaderBar {
 
         this.toggleBtn.addEventListener('click', () => {
             const isOn = this.toggleBtn.getAttribute('aria-checked') === 'true';
-            this.toggleBtn.setAttribute('aria-checked', String(!isOn));
-            this.syncCtrl.setEnabled(!isOn);
+            const next = !isOn;
+            this.toggleBtn.setAttribute('aria-checked', String(next));
+            this.syncCtrl.setEnabled(next);
+            SessionStore.saveSync(next);
         });
 
         this._startFPS();
@@ -737,6 +797,49 @@ class CompareApp {
 
         this._bindLayoutToolbar();
         this._bindResize();
+        this._restoreSession();
+    }
+
+    // ── Wire each panel so any state change auto-saves to localStorage ──────────
+    _hookPanelSave() {
+        const save = () => SessionStore.savePanels(this.panelManager.panels);
+        for (const panel of this.panelManager.panels) {
+            panel._onStateChange = save;
+        }
+    }
+
+    // ── Restore persisted layout, sync state, and panel assignments ─────────────
+    _restoreSession() {
+        const saved = SessionStore.load();
+
+        // 1. Restore layout (silent = skip saving back while restoring)
+        const layoutToRestore = saved.layout;
+        if (layoutToRestore !== this.panelManager.currentLayout) {
+            this.panelManager.switchLayout(layoutToRestore, true);
+            // Sync the active class on the toolbar buttons
+            document.querySelectorAll('.layout-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.layout === layoutToRestore);
+            });
+        }
+
+        // 2. Restore sync toggle UI
+        const syncEnabled = saved.sync;
+        this.syncCtrl.setEnabled(syncEnabled);
+        const toggleBtn = document.getElementById('sync-toggle');
+        if (toggleBtn) toggleBtn.setAttribute('aria-checked', String(syncEnabled));
+
+        // 3. Hook panel save callbacks (after layout is set so panels exist)
+        this._hookPanelSave();
+
+        // 4. Restore panel scene assignments (after layout panels are rendered)
+        requestAnimationFrame(() => {
+            for (const entry of saved.panels) {
+                if (entry.sceneId == null) continue;
+                const scene = SceneRegistry.findById(entry.sceneId);
+                const panel = this.panelManager.panels[entry.slot];
+                if (scene && panel) panel.setScene(scene);
+            }
+        });
     }
 
     _bindLayoutToolbar() {
@@ -745,6 +848,10 @@ class CompareApp {
                 document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.panelManager.switchLayout(btn.dataset.layout);
+                // Re-hook save callbacks after panels are rebuilt
+                this._hookPanelSave();
+                // Clear saved panel state since layout changed slot count
+                SessionStore.savePanels(this.panelManager.panels);
             });
         });
     }

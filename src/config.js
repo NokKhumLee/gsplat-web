@@ -1,22 +1,28 @@
 /**
  * GSplat Compare — Scene Registry
  *
- * Add your Luma capture URLs and metric results here.
+ * Add your scene entries here.
  * Each entry represents one model/scene that will appear as a card in the sidebar.
  *
- * url: Luma capture URL (https://lumalabs.ai/capture/...) or a public .ply URL
+ * url: path to a static .splat, .ply, or .spz file served from /public/splats/,
+ *      e.g. '/splats/garden.splat'  — OR — a full public URL to a remotely hosted file
  * thumbnail: path to a static image in /public/thumbnails/, or null for auto-placeholder
+ * rotation: optional [x, y, z] Euler rotation in radians applied to the SplatMesh.
+ *            Default is [Math.PI, 0, 0] which corrects the standard Y-axis flip.
+ *            Set to [0, 0, 0] if your scene is already correctly oriented.
  * metrics: from your evaluation results (psnr, ssim, fmllps — set to null if unavailable)
  */
 
 export const SCENES = [
-  // ── Demo scene (using the existing public Luma capture) ─────────────────────
+  // ── Demo scene ──────────────────────────────────────────────────────────────
+  // Place your .splat files in /public/splats/ and reference them like below.
+  // Example using a publicly available .splat from mkkellogg's demo data:
   {
-    id: 'demo-luma',
-    label: 'Demo Scene',
-    model: 'Luma Capture',
+    id: 'demo-garden',
+    label: 'Garden (Demo)',
+    model: 'Baseline',
     tag: 'DEMO',
-    url: 'https://lumalabs.ai/capture/83e9aae8-7023-448e-83a6-53ccb377ec86',
+    url: '/splats/garden.splat',
     thumbnail: null,
     metrics: { psnr: null, ssim: null, fmllps: null },
   }

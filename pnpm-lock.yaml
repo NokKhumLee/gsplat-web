@@ -8,9 +8,9 @@ importers:
 
   .:
     dependencies:
-      '@lumaai/luma-web':
-        specifier: ^0.2.2
-        version: 0.2.2(@types/three@0.184.0)(three@0.184.0)
+      '@sparkjsdev/spark':
+        specifier: ^2.0.0
+        version: 2.0.0(three@0.184.0)
       lucide:
         specifier: ^1.8.0
         version: 1.8.0
@@ -60,12 +60,6 @@ packages:
 
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
-
-  '@lumaai/luma-web@0.2.2':
-    resolution: {integrity: sha512-NTzVK36cfeNVRuBAof6ghMITaVKGggLGp/BXNhx7jyhp5PpBFX9Q46ibw5Caxy+Kvm5xlCkG7ASCboO/ZHy05w==}
-    peerDependencies:
-      '@types/three': ^0.157.2
-      three: ^0.157.0
 
   '@napi-rs/wasm-runtime@1.1.4':
     resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
@@ -173,6 +167,11 @@ packages:
 
   '@rolldown/pluginutils@1.0.0-rc.15':
     resolution: {integrity: sha512-UromN0peaE53IaBRe9W7CjrZgXl90fqGpK+mIZbA3qSTeYqg3pqpROBdIPvOG3F5ereDHNwoHBI2e50n1BDr1g==}
+
+  '@sparkjsdev/spark@2.0.0':
+    resolution: {integrity: sha512-W1p7NM4xXcUAVVcVus2mIFwcAC3VckyE0l4wXJuSmhcOgb6hHpqhQ/Ks9MK9ts7j23K+UwbCBwe+aTc/zgGygw==}
+    peerDependencies:
+      three: ^0.180.0
 
   '@tailwindcss/node@4.2.2':
     resolution: {integrity: sha512-pXS+wJ2gZpVXqFaUEjojq7jzMpTGf8rU6ipJz5ovJV6PUGmlJ+jvIwGrzdHdQ80Sg+wmQxUFuoW1UAAwHNEdFA==}
@@ -522,11 +521,6 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  '@lumaai/luma-web@0.2.2(@types/three@0.184.0)(three@0.184.0)':
-    dependencies:
-      '@types/three': 0.184.0
-      three: 0.184.0
-
   '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.9.2)(@emnapi/runtime@1.9.2)':
     dependencies:
       '@emnapi/core': 1.9.2
@@ -586,6 +580,11 @@ snapshots:
     optional: true
 
   '@rolldown/pluginutils@1.0.0-rc.15': {}
+
+  '@sparkjsdev/spark@2.0.0(three@0.184.0)':
+    dependencies:
+      fflate: 0.8.2
+      three: 0.184.0
 
   '@tailwindcss/node@4.2.2':
     dependencies:
