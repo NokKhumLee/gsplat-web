@@ -2,19 +2,15 @@ import './style.css';
 import { SparkRenderer, SplatMesh } from '@sparkjsdev/spark';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
-import { SCENES } from './config.js';
+import { loadManifest, getManifest, getAllScenes, findById } from './config.js';
+import { ImageComparePanel } from './imageCompare.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SceneRegistry — merges hardcoded SCENES with localStorage custom scenes
+// SceneRegistry — wraps manifest-driven config.js
 // ─────────────────────────────────────────────────────────────────────────────
 class SceneRegistry {
-    static getAllScenes() {
-        return SCENES;
-    }
-
-    static findById(id) {
-        return SCENES.find(s => s.id === id) ?? null;
-    }
+    static getAllScenes() { return getAllScenes(); }
+    static findById(id)   { return findById(id); }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -25,6 +21,7 @@ class SessionStore {
         layout: 'gsplat_layout',
         panels: 'gsplat_panel_state',
         sync:   'gsplat_sync_enabled',
+        mode:   'gsplat_view_mode',
     };
 
     static saveLayout(layout) {
@@ -45,15 +42,20 @@ class SessionStore {
         try { localStorage.setItem(this.KEYS.sync, String(enabled)); } catch {}
     }
 
+    static saveMode(mode) {
+        try { localStorage.setItem(this.KEYS.mode, mode); } catch {}
+    }
+
     static load() {
         try {
             return {
                 layout: localStorage.getItem(this.KEYS.layout) ?? 'split',
                 panels: JSON.parse(localStorage.getItem(this.KEYS.panels) || '[]'),
                 sync:   localStorage.getItem(this.KEYS.sync) !== 'false',
+                mode:   localStorage.getItem(this.KEYS.mode) ?? '3d',
             };
         } catch {
-            return { layout: 'split', panels: [], sync: true };
+            return { layout: 'split', panels: [], sync: true, mode: '3d' };
         }
     }
 }
@@ -388,16 +390,35 @@ class SceneSidebar {
     constructor(listEl, onDragStart) {
         this.listEl = listEl;
         this.onDragStart = onDragStart;
-        this._render();
     }
 
-    refresh() { this._render(); }
-
-    _render() {
+    render() {
         this.listEl.innerHTML = '';
-        for (const scene of SceneRegistry.getAllScenes()) {
-            const card = this._buildCard(scene);
-            this.listEl.appendChild(card);
+        const scenes = SceneRegistry.getAllScenes();
+
+        if (scenes.length === 0) {
+            this.listEl.innerHTML = `<div class="sidebar-empty">No scenes found in scenes.json</div>`;
+            return;
+        }
+
+        // Group by sceneId for visual grouping
+        const groups = {};
+        for (const scene of scenes) {
+            if (!groups[scene.sceneId]) groups[scene.sceneId] = [];
+            groups[scene.sceneId].push(scene);
+        }
+
+        for (const [sceneId, variants] of Object.entries(groups)) {
+            // Scene group header
+            const groupHeader = document.createElement('div');
+            groupHeader.className = 'scene-group-header';
+            groupHeader.textContent = variants[0].label.split('—')[0].trim();
+            this.listEl.appendChild(groupHeader);
+
+            for (const scene of variants) {
+                const card = this._buildCard(scene);
+                this.listEl.appendChild(card);
+            }
         }
     }
 
@@ -439,16 +460,21 @@ class SceneSidebar {
 
         const label = document.createElement('div');
         label.className = 'card-label';
-        label.textContent = scene.label;
+        // Show variant label only (after the '—')
+        label.textContent = scene.label.includes('—')
+            ? scene.label.split('—')[1].trim()
+            : scene.label;
         info.appendChild(label);
 
         const chips = document.createElement('div');
         chips.className = 'card-chips';
 
-        const modelChip = document.createElement('span');
-        modelChip.className = 'chip chip-model';
-        modelChip.textContent = scene.model;
-        chips.appendChild(modelChip);
+        if (scene.tag) {
+            const tagChip = document.createElement('span');
+            tagChip.className = `chip chip-tag chip-tag-${scene.tag.toLowerCase()}`;
+            tagChip.textContent = scene.tag;
+            chips.appendChild(tagChip);
+        }
 
         if (scene.metrics?.psnr != null) {
             const psnrChip = document.createElement('span');
@@ -572,25 +598,86 @@ class HeaderBar {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ModeController — switches between 3D view and Image Compare view
+// ─────────────────────────────────────────────────────────────────────────────
+class ModeController {
+    constructor(panelManager) {
+        this.panelManager = panelManager;
+        this.currentMode  = '3d';
+
+        this.view3d      = document.getElementById('view-3d');
+        this.viewCompare = document.getElementById('view-compare');
+        this.syncWrap    = document.getElementById('sync-control-wrap');
+        this.fpsWrap     = document.getElementById('fps-display-wrap');
+
+        this.btn3d      = document.getElementById('mode-3d');
+        this.btnCompare = document.getElementById('mode-compare');
+
+        this.btn3d.addEventListener('click',      () => this.switchTo('3d'));
+        this.btnCompare.addEventListener('click', () => this.switchTo('compare'));
+    }
+
+    switchTo(mode, silent = false) {
+        if (mode === this.currentMode) return;
+        this.currentMode = mode;
+
+        const is3d = mode === '3d';
+        this.view3d.style.display      = is3d ? '' : 'none';
+        this.viewCompare.style.display = is3d ? 'none' : '';
+        this.syncWrap.style.display    = is3d ? '' : 'none';
+        this.fpsWrap.style.display     = is3d ? '' : 'none';
+
+        this.btn3d.classList.toggle('active',      is3d);
+        this.btnCompare.classList.toggle('active', !is3d);
+
+        if (is3d) {
+            // Trigger resize so Three.js panels recalculate
+            requestAnimationFrame(() => this.panelManager.resizeAll());
+        }
+
+        if (!silent) SessionStore.saveMode(mode);
+    }
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CompareApp — root orchestrator
 // ─────────────────────────────────────────────────────────────────────────────
 class CompareApp {
     constructor() {
-        this.syncCtrl = new CameraSyncController();
+        this.syncCtrl    = new CameraSyncController();
         this.panelManager = new PanelManager(
             document.getElementById('panel-grid'),
             this.syncCtrl
         );
-        this.headerBar = new HeaderBar(this.syncCtrl);
+        this.headerBar    = new HeaderBar(this.syncCtrl);
         this.dragDropCtrl = new DragDropController(this.panelManager);
+        this.modeCtrl     = new ModeController(this.panelManager);
 
         this.sidebar = new SceneSidebar(
             document.getElementById('scene-list'),
             (scene) => this.dragDropCtrl.setActiveDragScene(scene)
         );
 
+        this.imageCompare = new ImageComparePanel(
+            document.getElementById('image-compare-panel')
+        );
+
         this._bindLayoutToolbar();
         this._bindResize();
+
+        // Load manifest then boot
+        this._boot();
+    }
+
+    async _boot() {
+        const manifest = await loadManifest();
+
+        // Feed manifest to both the sidebar and image compare panel
+        this.sidebar.render();
+        this.imageCompare.setManifest(manifest);
+
+        // Restore session (layout, panels, mode)
         this._restoreSession();
     }
 
@@ -602,7 +689,7 @@ class CompareApp {
         }
     }
 
-    // ── Restore persisted layout, sync state, and panel assignments ─────────────
+    // ── Restore persisted layout, sync state, mode, and panel assignments ───────
     _restoreSession() {
         const saved = SessionStore.load();
 
@@ -610,7 +697,6 @@ class CompareApp {
         const layoutToRestore = saved.layout;
         if (layoutToRestore !== this.panelManager.currentLayout) {
             this.panelManager.switchLayout(layoutToRestore, true);
-            // Sync the active class on the toolbar buttons
             document.querySelectorAll('.layout-btn').forEach(b => {
                 b.classList.toggle('active', b.dataset.layout === layoutToRestore);
             });
@@ -622,10 +708,10 @@ class CompareApp {
         const toggleBtn = document.getElementById('sync-toggle');
         if (toggleBtn) toggleBtn.setAttribute('aria-checked', String(syncEnabled));
 
-        // 3. Hook panel save callbacks (after layout is set so panels exist)
+        // 3. Hook panel save callbacks
         this._hookPanelSave();
 
-        // 4. Restore panel scene assignments (after layout panels are rendered)
+        // 4. Restore panel scene assignments
         requestAnimationFrame(() => {
             for (const entry of saved.panels) {
                 if (entry.sceneId == null) continue;
@@ -634,6 +720,11 @@ class CompareApp {
                 if (scene && panel) panel.setScene(scene);
             }
         });
+
+        // 5. Restore view mode
+        if (saved.mode === 'compare') {
+            this.modeCtrl.switchTo('compare', true);
+        }
     }
 
     _bindLayoutToolbar() {
@@ -642,9 +733,7 @@ class CompareApp {
                 document.querySelectorAll('.layout-btn').forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
                 this.panelManager.switchLayout(btn.dataset.layout);
-                // Re-hook save callbacks after panels are rebuilt
                 this._hookPanelSave();
-                // Clear saved panel state since layout changed slot count
                 SessionStore.savePanels(this.panelManager.panels);
             });
         });
